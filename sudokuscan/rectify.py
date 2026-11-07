@@ -1,5 +1,7 @@
 """Stage 3 - rectification with A3 (affine, 3 points), A4 (affine, 4 points) and H4 (homography)."""
 
+from typing import Any
+
 import cv2
 import numpy as np
 
@@ -7,7 +9,7 @@ SIZE = 450  # 9 cells x 50 px
 
 # Target corners TL, TR, BR, BL. Pixel centres sit at whole numbers, so the outer edge of a
 # 450 px image runs from -0.5 to 449.5; mapping the corners there makes every cell exactly 50x50.
-TARGET = np.float32([[-0.5, -0.5], [SIZE - 0.5, -0.5], [SIZE - 0.5, SIZE - 0.5], [-0.5, SIZE - 0.5]])
+TARGET = np.array([[-0.5, -0.5], [SIZE - 0.5, -0.5], [SIZE - 0.5, SIZE - 0.5], [-0.5, SIZE - 0.5]], dtype=np.float32)
 TL, TR, BR, BL = 0, 1, 2, 3
 
 
@@ -16,10 +18,10 @@ def apply_affine(A, pts):
     return pts @ A[:, :2].T + A[:, 2]
 
 
-def rectify(image, corners):
+def rectify(image, corners) -> dict[str, Any]:
     """Return {"A3", "A4": 2x3 matrices, "H4": 3x3 matrix, "images": {"A3", "A4", "H4": 450x450 images},
     "a3_corner_err_px", "a4_rms_px", "a3_br_px", "h4_max_err_px"}."""
-    src = np.float32(corners)
+    src = np.asarray(corners, dtype=np.float32)
 
     # A3: 6 unknowns, 3 point pairs x 2 equations = exactly determined. BR is not used.
     A3 = cv2.getAffineTransform(src[[TL, TR, BL]], TARGET[[TL, TR, BL]])
