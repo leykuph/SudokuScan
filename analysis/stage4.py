@@ -36,14 +36,37 @@ def line_positions(path, axis):
         lo = max(p - 20, 0)
         hi = min(p + 20, 450)
         peak = lo + np.argmax(profile[lo:hi])
-        peaks.append(int(peak))
+
+        if 0 < lo and hi < 450 and (peak == lo or peak == hi - 1):
+            peaks.append(np.nan)
+        else:
+            peaks.append(int(peak))
 
     return peaks
 
+def straightness(img):
+
+    left = img[:,:225]
+    right = img[:,225:]
+
+    prof_left = left.sum(axis=1)
+    prof_right = right.sum(axis=1)
+
+    peaksleft, peaksright = [], []
+    for p in range(0, 451, 50):
+        lo = max(p - 20, 0)
+        hi = min(p + 20, 450)
+        peakleft = lo + np.argmax(prof_left[lo:hi])
+        peakright = lo + np.argmax(prof_right[lo:hi])
+        peaksleft.append(int(peakleft))
+        peaksright.append(int(peakright))
+    return np.array(peaksright) - np.array(peaksleft)
+
+
 def deviation(peaks):
     dev = np.array(peaks) - np.arange(0, 451, 50)
-    mean = np.abs(dev).mean()
-    max = np.abs(dev).max()
+    mean = np.nanmean(np.abs(dev))
+    max = np.nanmax(np.abs(dev))
 
     return max, mean
 
@@ -68,6 +91,11 @@ plt.legend()
 plt.savefig("residual_vs_obliqueness.png", dpi=200)
 
 for model in ["H4", "A4", "A3"]:
+    img = cv2.imread(f"results/dev_07_rect_{model}.png", cv2.IMREAD_GRAYSCALE)
+    if img is None:
+        raise FileNotFoundError(model)
+    ink = 255 - img
+    print(model, "slant", straightness(ink))
     for axis in [1, 0]:
         peaks = line_positions(f"results/dev_07_rect_{model}.png", axis)
         print(model, "horizontal" if axis == 1 else "vertical", peaks, deviation(peaks))
