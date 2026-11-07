@@ -4,10 +4,10 @@ import cv2
 import numpy as np
 from .preprocess import to_original
 
-BLOCK_SIZE = 7  # A larger window gives a smoother response but merges nearby features
-KSIZE = 5       # Sobel aperture
-K = 0.05        # is usually 0.04–0.06
-T = 0.04        # threshold, relative to the strongest response
+BLOCK_SIZE = 5  # A larger window gives a smoother response but merges nearby features
+KSIZE = 3       # Sobel aperture
+K = 0.02        # is usually 0.04–0.06
+T = 0.02        # threshold, relative to the strongest response
 N = 8           # non-maximum suppression window
 
 
