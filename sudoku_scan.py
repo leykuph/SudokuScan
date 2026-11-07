@@ -99,6 +99,8 @@ def save(outdir, path, r, runtime):
         "H4": as_list(rect.get("H4")),
         "a3_corner_err_px": rect.get("a3_corner_err_px"),
         "a4_rms_px": rect.get("a4_rms_px"),
+        "a3_br_px": rect.get("a3_br_px"),          # where A3 maps BR (should be 449.5, 449.5)
+        "h4_max_err_px": rect.get("h4_max_err_px"),  # H4 corner error, ~0 if exact
         "grid": grid.tolist(),
         "verdict": r["verdict"],
         "conflicts": [[int(row), int(col)] for row, col in r["conflicts"]],
