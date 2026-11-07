@@ -11,6 +11,7 @@ import csv
 import json
 from collections import Counter
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -33,7 +34,7 @@ def read_grid_txt(path: Path) -> np.ndarray | None:
     return np.array([[int(ch) for ch in line] for line in lines])
 
 
-def evaluate_image(ann: dict, results: Path) -> dict:
+def evaluate_image(ann: dict[str, Any], results: Path) -> dict[str, Any]:
     stem = Path(ann["image"]).stem
     gt_corners = np.asarray(ann["corners"], dtype=float)
     gt_grid = np.asarray(ann["grid"], dtype=int)
@@ -43,14 +44,15 @@ def evaluate_image(ann: dict, results: Path) -> dict:
     except (OSError, ValueError):
         res = None
 
-    row = {
+    runtime = res.get("runtime_s") if res else None
+    row: dict[str, Any] = {
         "image": stem,
         "conditions": ann.get("conditions", []),
         "verdict": res.get("verdict", "?") if res else "missing",
-        "runtime_s": res.get("runtime_s") if res else None,
+        "runtime_s": runtime,
         "corner_err_pct": None,
+        "robust": isinstance(runtime, (int, float)) and runtime <= TIME_LIMIT_S,
     }
-    row["robust"] = res is not None and row["runtime_s"] is not None and row["runtime_s"] <= TIME_LIMIT_S
 
     corners = res.get("corners") if res else None
     if corners is not None:
@@ -75,7 +77,7 @@ def evaluate_image(ann: dict, results: Path) -> dict:
     return row
 
 
-def summarise(rows: list[dict]) -> dict:
+def summarise(rows: list[dict[str, Any]]) -> dict[str, Any]:
     found = [r["corner_err_pct"] for r in rows if r["corner_err_pct"] is not None]
     tp, fp, fn = (sum(r[k] for r in rows) for k in ("tp", "fp", "fn"))
     return {
@@ -94,7 +96,7 @@ def _fmt(x, spec: str) -> str:
     return "-" if x is None else format(x, spec)
 
 
-def print_report(rows: list[dict], top_confusions: int) -> None:
+def print_report(rows: list[dict[str, Any]], top_confusions: int) -> None:
     print(f"{'image':<14}{'cond':<12}{'verdict':<11}{'corner%':>8}{'cells':>8}{'exact':>7}{'time s':>8}")
     for r in rows:
         print(f"{r['image']:<14}{' '.join(r['conditions']):<12}{r['verdict']:<11}"
@@ -120,7 +122,7 @@ def print_report(rows: list[dict], top_confusions: int) -> None:
             print(f"  {g} -> {p}: {count}")
 
 
-def write_csv(rows: list[dict], path: Path) -> None:
+def write_csv(rows: list[dict[str, Any]], path: Path) -> None:
     fields = ["image", "conditions", "verdict", "corner_err_pct", "cell_acc", "exact",
               "tp", "fp", "fn", "runtime_s", "robust"]
     with open(path, "w", newline="") as f:

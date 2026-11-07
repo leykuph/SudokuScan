@@ -4,12 +4,15 @@ import json
 import math
 import re
 from pathlib import Path
+from typing import Any
 
 import cv2
 import numpy as np
 
+from .corners import CornerDetection
 from .pipeline import ScanResult
-from .rectify import TARGET_SIZE
+from .preprocess import Preprocessed
+from .rectify import TARGET_SIZE, Rectification
 
 CELL = TARGET_SIZE // 9
 LABELS = ("TL", "TR", "BR", "BL")
@@ -19,19 +22,19 @@ def write_outputs(outdir: Path, image_name: str, res: ScanResult) -> None:
     name = Path(image_name).stem
     (outdir / f"{name}_grid.txt").write_text(format_grid(res.grid))
     (outdir / f"{name}_result.json").write_text(to_json_text(result_to_json(image_name, res)))
-    if res.detection is not None:
-        cv2.imwrite(str(outdir / f"{name}_harris.png"), draw_harris(res))
+    if res.prep is not None and res.detection is not None:
+        cv2.imwrite(str(outdir / f"{name}_harris.png"), draw_harris(res.prep, res.detection))
     if res.rect is not None:
         for model, rectified in res.rect.images.items():
             cv2.imwrite(str(outdir / f"{name}_rect_{model}.png"), rectified)
-        cv2.imwrite(str(outdir / f"{name}_debug.png"), draw_debug(res))
+        cv2.imwrite(str(outdir / f"{name}_debug.png"), draw_debug(res.rect, res))
 
 
 def format_grid(grid: np.ndarray) -> str:
     return "".join("".join(str(int(d)) for d in row) + "\n" for row in grid)
 
 
-def _matrix(m) -> list | None:
+def _matrix(m: Any) -> list[Any] | None:
     return None if m is None else np.asarray(m, dtype=float).tolist()
 
 
@@ -39,7 +42,7 @@ def _number(x) -> float | None:
     return None if x is None or not math.isfinite(x) else round(float(x), 4)
 
 
-def result_to_json(image_name: str, res: ScanResult) -> dict:
+def result_to_json(image_name: str, res: ScanResult) -> dict[str, Any]:
     rect = res.rect
     out = {
         "image": image_name,
@@ -59,15 +62,15 @@ def result_to_json(image_name: str, res: ScanResult) -> dict:
     return out
 
 
-def to_json_text(data: dict) -> str:
+def to_json_text(data: dict[str, Any]) -> str:
     """Indented JSON, but with each innermost list (a corner, a matrix row, a grid row) on one line."""
     text = json.dumps(data, indent=2)
     return re.sub(r"\[\s+([^\[\]]*?)\s+\]", lambda m: "[" + " ".join(m.group(1).split()) + "]", text) + "\n"
 
 
-def draw_harris(res: ScanResult) -> np.ndarray:
+def draw_harris(prep: Preprocessed, det: CornerDetection) -> np.ndarray:
     """Harris response map with all candidates (green) and the four selected corners (red)."""
-    det, scale = res.detection, res.prep.scale
+    scale = prep.scale
     r = np.maximum(det.response, 0)
     if r.max() > 0:
         r = r / r.max()
@@ -89,9 +92,9 @@ def draw_harris(res: ScanResult) -> np.ndarray:
     return vis
 
 
-def draw_debug(res: ScanResult) -> np.ndarray:
+def draw_debug(rect: Rectification, res: ScanResult) -> np.ndarray:
     """Rectified H4 image with cell boundaries, recognised digits (blue), conflicts (red) and verdict."""
-    img = res.rect.images["H4"].copy()
+    img = rect.images["H4"].copy()
 
     overlay = img.copy()
     for r, c in res.conflicts:
