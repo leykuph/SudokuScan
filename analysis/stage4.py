@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
-
+import cv2
 
 def obliqueness(corners):
     tl, tr, br, bl = corners
@@ -22,6 +22,30 @@ def getDeg(d):
     arctan = np.arctan2(d[1], d[0])
     deg = np.degrees(arctan)
     return deg
+
+def line_positions(path, axis):
+    img = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+    if img is None:
+        raise FileNotFoundError(path)
+    ink = 255 - img
+
+    profile = ink.sum(axis=axis)
+
+    peaks = []
+    for p in range(0, 451, 50):
+        lo = max(p - 20, 0)
+        hi = min(p + 20, 450)
+        peak = lo + np.argmax(profile[lo:hi])
+        peaks.append(int(peak))
+
+    return peaks
+
+def deviation(peaks):
+    dev = np.array(peaks) - np.arange(0, 451, 50)
+    mean = np.abs(dev).mean()
+    max = np.abs(dev).max()
+
+    return max, mean
 
 obl, a3, a4 = [], [], []
 
@@ -42,3 +66,8 @@ plt.xlabel("obliqueness (deg)")
 plt.ylabel("error (px)")
 plt.legend()
 plt.savefig("residual_vs_obliqueness.png", dpi=200)
+
+for model in ["H4", "A4", "A3"]:
+    for axis in [1, 0]:
+        peaks = line_positions(f"results/dev_07_rect_{model}.png", axis)
+        print(model, "horizontal" if axis == 1 else "vertical", peaks, deviation(peaks))
