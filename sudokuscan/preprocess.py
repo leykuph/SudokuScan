@@ -1,7 +1,5 @@
 """Stage 1 - preprocessing."""
 
-from dataclasses import dataclass
-
 import cv2
 import numpy as np
 
@@ -9,26 +7,23 @@ LONG_SIDE = 1000  # every photo is resized to this long side; all sizes below ar
 MAX_GAIN = 3      # never brighten a region more than 3x relative to well-lit paper
 
 
-@dataclass
-class Preprocessed:
-    image: np.ndarray  # original photo
-    work: np.ndarray   # normalised greyscale, Harris input
-    ink: np.ndarray    # binary, ink = 255, paper = 0
-    scale: float       # work pixels per original pixel
-
-    def to_work(self, pts):
-        return (np.asarray(pts, dtype=float) + 0.5) * self.scale - 0.5
-
-    def to_original(self, pts):
-        return (np.asarray(pts, dtype=float) + 0.5) / self.scale - 0.5
-
-
 def odd(n):
     n = max(3, round(n))
     return n if n % 2 == 1 else n + 1
 
 
+def to_work(pts, scale):
+    """Original-image (x, y) points -> working-image points."""
+    return (np.asarray(pts, dtype=float) + 0.5) * scale - 0.5
+
+
+def to_original(pts, scale):
+    """Working-image (x, y) points -> original-image points."""
+    return (np.asarray(pts, dtype=float) + 0.5) / scale - 0.5
+
+
 def preprocess(image):
+    """Return {"work": normalised grey (Harris input), "ink": binary with ink = 255, "scale": work / original}."""
     # 1. Resize to a fixed size, so the same parameters work on 1000 px and 4000 px photos.
     scale = LONG_SIDE / max(image.shape[:2])
     small = cv2.resize(image, None, fx=scale, fy=scale,
@@ -54,4 +49,4 @@ def preprocess(image):
     ink = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV,
                                 odd(0.025 * LONG_SIDE), 10)
 
-    return Preprocessed(image, work, ink, scale)
+    return {"work": work, "ink": ink, "scale": scale}

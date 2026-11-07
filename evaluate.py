@@ -1,152 +1,90 @@
-"""Scores a results folder against ground-truth annotations with the Section 7 metrics.
+"""Section 7 metrics for a results folder, against ground-truth annotations.
 
-    python evaluate.py --results results/ --annotations SudokuScan_devset/annotations
-    python evaluate.py --results results/ --annotations ... --csv per_image.csv
-
-Missing or unreadable outputs count as failures: no corners, and every cell wrong.
+    python evaluate.py results/ SudokuScan_devset/annotations
 """
 
-import argparse
-import csv
 import json
+import sys
 from collections import Counter
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-TIME_LIMIT_S = 20.0
-CONDITIONS = ("C1", "C2", "C3", "C4", "C5")
 
-
-def side_length(quad: np.ndarray) -> float:
-    """Mean length of the four sides of a TL, TR, BR, BL quadrilateral."""
-    return float(np.mean(np.linalg.norm(quad - np.roll(quad, -1, axis=0), axis=1)))
-
-
-def read_grid_txt(path: Path) -> np.ndarray | None:
-    try:
-        lines = path.read_text().split()
-    except OSError:
-        return None
-    if len(lines) != 9 or any(len(line) != 9 or not line.isdigit() for line in lines):
-        return None
-    return np.array([[int(ch) for ch in line] for line in lines])
-
-
-def evaluate_image(ann: dict[str, Any], results: Path) -> dict[str, Any]:
-    stem = Path(ann["image"]).stem
-    gt_corners = np.asarray(ann["corners"], dtype=float)
-    gt_grid = np.asarray(ann["grid"], dtype=int)
-
+def read_outputs(results, stem):
+    """The result JSON ({} if missing) and the 9x9 grid from grid.txt (all -1, i.e. all wrong, if missing)."""
     try:
         res = json.loads((results / f"{stem}_result.json").read_text())
     except (OSError, ValueError):
-        res = None
+        res = {}
+    try:
+        grid = np.array([[int(c) for c in line] for line in (results / f"{stem}_grid.txt").read_text().split()])
+        assert grid.shape == (9, 9)
+    except (OSError, ValueError, AssertionError):
+        grid = np.full((9, 9), -1)
+    return res, grid
 
-    runtime = res.get("runtime_s") if res else None
-    row: dict[str, Any] = {
+
+def score_image(results, ann) -> dict[str, Any]:
+    stem = Path(ann["image"]).stem
+    res, pred = read_outputs(results, stem)
+    gt = np.array(ann["grid"])
+    quad = np.array(ann["corners"], dtype=float)
+
+    corner_err = None
+    if res.get("corners") is not None:
+        side = np.linalg.norm(quad - np.roll(quad, -1, axis=0), axis=1).mean()   # mean of the 4 sides
+        corner_err = 100 * np.linalg.norm(np.array(res["corners"]) - quad, axis=1).mean() / side
+
+    return {
         "image": stem,
         "conditions": ann.get("conditions", []),
-        "verdict": res.get("verdict", "?") if res else "missing",
-        "runtime_s": runtime,
-        "corner_err_pct": None,
-        "robust": isinstance(runtime, (int, float)) and runtime <= TIME_LIMIT_S,
+        "verdict": res.get("verdict", "missing"),
+        "corner_err": corner_err,                          # % of the true side length
+        "cell_acc": (pred == gt).mean(),
+        "exact": (pred == gt).all(),
+        "robust": res.get("runtime_s", 999) <= 20,         # an output file exists and within the time limit
+        "tp": ((gt == 0) & (pred == 0)).sum(),             # empty-cell F1: "empty" is the positive class
+        "fp": ((gt != 0) & (pred == 0)).sum(),
+        "fn": ((gt == 0) & (pred != 0)).sum(),
+        "confusions": Counter((int(g), int(p)) for g, p in zip(gt.flat, pred.flat) if g != p and p != -1),
     }
 
-    corners = res.get("corners") if res else None
-    if corners is not None:
-        err = np.linalg.norm(np.asarray(corners, dtype=float) - gt_corners, axis=1).mean()
-        row["corner_err_pct"] = 100 * err / side_length(gt_corners)
 
-    pred = read_grid_txt(results / f"{stem}_grid.txt")
-    if pred is None:
-        pred = np.full((9, 9), -1)  # no prediction: wrong everywhere, never "empty"
-    row["cell_acc"] = float((pred == gt_grid).mean())
-    row["exact"] = bool((pred == gt_grid).all())
-
-    # Empty-cell F1 counts: the positive class is "empty".
-    gt_empty, pred_empty = gt_grid == 0, pred == 0
-    row["tp"] = int((gt_empty & pred_empty).sum())
-    row["fp"] = int((~gt_empty & pred_empty).sum())
-    row["fn"] = int((gt_empty & ~pred_empty).sum())
-
-    row["confusions"] = Counter(
-        (int(g), int(p)) for g, p in zip(gt_grid.ravel(), pred.ravel()) if g != p and p != -1
-    )
-    return row
-
-
-def summarise(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    found = [r["corner_err_pct"] for r in rows if r["corner_err_pct"] is not None]
+def summary_line(name, rows):
+    errs = [r["corner_err"] for r in rows if r["corner_err"] is not None]
     tp, fp, fn = (sum(r[k] for r in rows) for k in ("tp", "fp", "fn"))
-    return {
-        "n": len(rows),
-        "found": len(found) / len(rows),
-        "corner_mean": float(np.mean(found)) if found else None,
-        "corner_median": float(np.median(found)) if found else None,
-        "cell_acc": float(np.mean([r["cell_acc"] for r in rows])),
-        "empty_f1": 2 * tp / (2 * tp + fp + fn) if tp + fp + fn else 1.0,
-        "exact": float(np.mean([r["exact"] for r in rows])),
-        "robust": float(np.mean([r["robust"] for r in rows])),
-    }
+    f1 = 2 * tp / (2 * tp + fp + fn) if tp + fp + fn else 1.0
+    corner = f"{np.mean(errs):15.2f}" if errs else f"{'-':>15}"
+    return (f"{name:<6}{len(rows):>4}{len(errs) / len(rows):>7.2f}{corner}"
+            f"{np.mean([r['cell_acc'] for r in rows]):>10.3f}{f1:>10.3f}"
+            f"{np.mean([r['exact'] for r in rows]):>8.2f}{np.mean([r['robust'] for r in rows]):>8.2f}")
 
 
-def _fmt(x, spec: str) -> str:
-    return "-" if x is None else format(x, spec)
+def main():
+    if len(sys.argv) != 3:
+        sys.exit(__doc__)
+    results, annotations = Path(sys.argv[1]), Path(sys.argv[2])
+    rows = [score_image(results, json.loads(p.read_text())) for p in sorted(annotations.glob("*.json"))]
 
-
-def print_report(rows: list[dict[str, Any]], top_confusions: int) -> None:
-    print(f"{'image':<14}{'cond':<12}{'verdict':<11}{'corner%':>8}{'cells':>8}{'exact':>7}{'time s':>8}")
+    print(f"{'image':<10}{'conditions':<12}{'verdict':<11}{'corner %':>9}{'cells':>7}{'exact':>7}")
     for r in rows:
-        print(f"{r['image']:<14}{' '.join(r['conditions']):<12}{r['verdict']:<11}"
-              f"{_fmt(r['corner_err_pct'], '.2f'):>8}{r['cell_acc']:>8.3f}{'yes' if r['exact'] else 'no':>7}"
-              f"{_fmt(r['runtime_s'], '.2f'):>8}")
+        corner = f"{r['corner_err']:9.2f}" if r["corner_err"] is not None else f"{'-':>9}"
+        print(f"{r['image']:<10}{' '.join(r['conditions']):<12}{r['verdict']:<11}{corner}"
+              f"{r['cell_acc']:>7.3f}{'yes' if r['exact'] else 'no':>7}")
 
-    print()
-    print(f"{'group':<8}{'n':>4}{'found':>8}{'corner% mean':>14}{'median':>8}"
-          f"{'cell acc':>10}{'empty F1':>10}{'exact':>8}{'robust':>8}")
-    groups = [("all", rows)] + [(c, [r for r in rows if c in r["conditions"]]) for c in CONDITIONS]
-    for name, group in groups:
-        if not group:
-            continue
-        s = summarise(group)
-        print(f"{name:<8}{s['n']:>4}{s['found']:>8.2f}{_fmt(s['corner_mean'], '.2f'):>14}"
-              f"{_fmt(s['corner_median'], '.2f'):>8}{s['cell_acc']:>10.3f}{s['empty_f1']:>10.3f}"
-              f"{s['exact']:>8.2f}{s['robust']:>8.2f}")
+    print(f"\n{'group':<6}{'n':>4}{'found':>7}{'corner % mean':>15}{'cell acc':>10}{'empty F1':>10}{'exact':>8}{'robust':>8}")
+    print(summary_line("all", rows))
+    for c in ("C1", "C2", "C3", "C4", "C5"):
+        group = [r for r in rows if c in r["conditions"]]
+        if group:
+            print(summary_line(c, group))
 
     confusions = sum((r["confusions"] for r in rows), Counter())
-    if confusions and top_confusions:
-        print("\nmost frequent confusions (true -> predicted, 0 = empty):")
-        for (g, p), count in confusions.most_common(top_confusions):
-            print(f"  {g} -> {p}: {count}")
-
-
-def write_csv(rows: list[dict[str, Any]], path: Path) -> None:
-    fields = ["image", "conditions", "verdict", "corner_err_pct", "cell_acc", "exact",
-              "tp", "fp", "fn", "runtime_s", "robust"]
-    with open(path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
-        writer.writeheader()
-        for r in rows:
-            writer.writerow({**r, "conditions": " ".join(r["conditions"])})
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Score SudokuScan results against annotations.")
-    parser.add_argument("--results", type=Path, required=True, help="folder written by sudoku_scan.py")
-    parser.add_argument("--annotations", type=Path, required=True, help="folder of ground-truth JSON files")
-    parser.add_argument("--csv", type=Path, help="also write per-image metrics to this CSV file")
-    parser.add_argument("--confusions", type=int, default=10, help="how many confusions to list")
-    args = parser.parse_args()
-
-    anns = [json.loads(p.read_text()) for p in sorted(args.annotations.glob("*.json"))]
-    rows = [evaluate_image(a, args.results) for a in anns]
-    if not rows:
-        raise SystemExit(f"no annotations found in {args.annotations}")
-    print_report(rows, args.confusions)
-    if args.csv:
-        write_csv(rows, args.csv)
+    print("\nmost frequent confusions (true -> predicted, 0 = empty):")
+    for (g, p), n in confusions.most_common(10):
+        print(f"  {g} -> {p}: {n}")
 
 
 if __name__ == "__main__":
