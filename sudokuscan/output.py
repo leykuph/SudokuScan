@@ -70,7 +70,6 @@ def to_json_text(data: dict[str, Any]) -> str:
 
 def draw_harris(prep: Preprocessed, det: CornerDetection) -> np.ndarray:
     """Harris response map with all candidates (green) and the four selected corners (red)."""
-    scale = prep.scale
     r = np.maximum(det.response, 0)
     if r.max() > 0:
         r = r / r.max()
@@ -82,7 +81,7 @@ def draw_harris(prep: Preprocessed, det: CornerDetection) -> np.ndarray:
         cv2.circle(vis, (round(x), round(y)), rad, (0, 255, 0), 1, cv2.LINE_AA)
 
     if det.corners is not None:
-        pts = np.asarray(det.corners, dtype=float) * scale
+        pts = prep.to_work(det.corners)
         cv2.polylines(vis, [pts.round().astype(np.int32)], True, (0, 0, 255), max(1, rad // 2), cv2.LINE_AA)
         for label, (x, y) in zip(LABELS, pts):
             p = (round(x), round(y))

@@ -12,6 +12,7 @@ class CornerDetection:
     response: np.ndarray        # Harris response map, same size as prep.work
     candidates: np.ndarray      # (N, 2) candidate points (x, y) in work-image pixels
     corners: np.ndarray | None  # (4, 2) TL, TR, BR, BL in ORIGINAL-image pixels, None if not found
+                                # (convert with prep.to_original / prep.to_work)
 
 
 def detect_corners(prep: Preprocessed) -> CornerDetection:
