@@ -4,6 +4,26 @@ import cv2
 import numpy as np
 from .preprocess import to_original
 
+BLOCK_SIZE = 7  # A larger window gives a smoother response but merges nearby features
+KSIZE = 5       # Sobel aperture
+K = 0.05        # is usually 0.04–0.06
+T = 0.04        # threshold, relative to the strongest response
+N = 8           # non-maximum suppression window
+
+
+def harris_candidates(work, blockSize, ksize, k, t, n):
+    """Return (dst, candidates): the Harris response and the (N, 2) candidate points (x, y)."""
+    src = work.astype(np.float32)  # Must be float32
+    dst = cv2.cornerHarris(src, blockSize, ksize, k)
+
+    strong = dst > t * dst.max()
+    kernel = np.ones((n, n), np.uint8)
+    peaks = dst == cv2.dilate(dst, kernel)
+    candidates = np.argwhere(strong & peaks)[:, ::-1]
+
+    return dst, candidates
+
+
 def detect_corners(prep):
     """Return (response, candidates, corners):
 
@@ -12,20 +32,6 @@ def detect_corners(prep):
     corners    - (4, 2) array TL, TR, BR, BL in ORIGINAL-image pixels (see preprocess.to_original),
                  or None if no puzzle is found
     """
-    blockSize = 7 # A larger window gives a smoother response but merges nearby features
-    ksize = 5 # Sobel aperture
-    k = 0.05 # is usually 0.04–0.06
-    src = prep["work"].astype(np.float32) # Must be float32
-    candidates = np.zeros((0, 2))
-    t = 0.04
-    n = 10
-
-
-    dst = cv2.cornerHarris(src, blockSize, ksize, k)
-
-    strong = dst > t * dst.max()
-    kernel = np.ones((n, n), np.uint8)
-    peaks = dst == cv2.dilate(dst, kernel)
-    candidates = np.argwhere(strong & peaks)[:, ::-1]
+    dst, candidates = harris_candidates(prep["work"], BLOCK_SIZE, KSIZE, K, T, N)
 
     return dst, candidates, None
