@@ -23,15 +23,21 @@ def harris_candidates(work, blockSize, ksize, k, t, n):
 
     return dst, candidates
 
-
 def detect_corners(prep):
-    """Return (response, candidates, corners):
-
-    response   - Harris response map, same size as prep["work"]
-    candidates - (N, 2) array of (x, y) candidate points in working-image pixels
-    corners    - (4, 2) array TL, TR, BR, BL in ORIGINAL-image pixels (see preprocess.to_original),
-                 or None if no puzzle is found
-    """
     dst, candidates = harris_candidates(prep["work"], BLOCK_SIZE, KSIZE, K, T, N)
 
-    return dst, candidates, None
+    if len(candidates) < 4:
+        return dst, candidates, None
+
+    s = candidates[:, 0] + candidates[:, 1]   # x + y
+    d = candidates[:, 0] - candidates[:, 1]   # x - y
+
+    tl = candidates[np.argmin(s)]
+    br = candidates[np.argmax(s)]
+    bl = candidates[np.argmin(d)]
+    tr = candidates[np.argmax(d)]
+
+    corners = np.array([tl, tr, br, bl], dtype=np.float32)
+    corners = to_original(corners, prep["scale"])
+
+    return dst, candidates, corners
