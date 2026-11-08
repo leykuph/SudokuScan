@@ -37,7 +37,7 @@ def line_positions(path, axis):
         hi = min(p + 20, 450)
         peak = lo + np.argmax(profile[lo:hi])
 
-        if 0 < lo and hi < 450 and (peak == lo or peak == hi - 1):
+        if (lo > 0 and peak == lo) or (hi < 450 and peak == hi - 1):
             peaks.append(np.nan)
         else:
             peaks.append(int(peak))
