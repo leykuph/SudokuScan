@@ -6,3 +6,5 @@ results/
 .ipynb_checkpoints/
 SudokuScan_devset/
 previews/
+.claude
+results_own/
